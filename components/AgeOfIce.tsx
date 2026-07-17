@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+
 import { CloudSnow, ShieldCheck, ThermometerSnowflake } from "lucide-react";
 
 interface AgeOfIceProps {
