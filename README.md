@@ -3,6 +3,7 @@
 
 
 
+
 > A modern personal finance tracker built with **React** and **TypeScript**, inspired by the calm atmosphere of winter and the strength of a polar bear.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
