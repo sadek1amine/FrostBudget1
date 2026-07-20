@@ -1,6 +1,5 @@
 "use client";
 
-
 import React, { useEffect, useState } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -8,29 +7,32 @@ import { Input } from "@/components/ui/input";
 import { formatterLeMontant } from "@/lib/utils";
 import { 
   CloudSnow, 
-  RefreshCw, 
-  TrendingDown, 
-  TrendingUp, 
   AlertTriangle,
   CheckCircle,
-  HelpCircle
+  TrendingUp,
+  Snowflake
 } from "lucide-react";
+import { 
+  getUserBudgets, 
+  getUserCashOnHand, 
+  updateBudgetAmounts, 
+  updateCashOnHand 
+} from "@/lib/actions/user.actions";
 
-// Types correspondants à votre schéma de base de données
 interface MonthlyBudget {
   $id: string;
   userId: string;
   categoryId: string;
-  categoryName: string; // Nom de la catégorie associée
-  allocatedAmount: number; // Budget alloué
-  activityAmount: number; // Dépenses réelles constatées
+  categoryName: string; 
+  allocatedAmount: number; 
+  activityAmount: number; 
   month_year: string;
 }
 
 interface UserCashOnHand {
   $id: string;
   userId: string;
-  toBeBudgeted: number; // Glace Fondue / Argent disponible
+  toBeBudgeted: number; 
 }
 
 interface RecentBudgetsProps {
@@ -42,72 +44,49 @@ const RecentBudgets: React.FC<RecentBudgetsProps> = ({ userId }) => {
   const [cashOnHand, setCashOnHand] = useState<UserCashOnHand | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // États pour le Modal de réajustement (Blizzard Realignment)
+  // Blizzard Realignment Modals States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [targetBudget, setTargetBudget] = useState<MonthlyBudget | null>(null);
   const [sourceBudgetId, setSourceBudgetId] = useState<string>("");
   const [transferAmount, setTransferAmount] = useState<string>("");
 
-  // États pour l'ajout d'une nouvelle ligne budgétaire
   const [newAllocated, setNewAllocated] = useState({
     categoryId: '',
     categoryName: '',
     amount: ''
   });
 
-  // Simulation des catégories disponibles (récupérées normalement depuis la table Category)
   const availableCategories = [
-    { id: "cat_1", name: "Alimentation" },
-    { id: "cat_2", name: "Loyer & Factures" },
+    { id: "cat_1", name: "Alimentation & Courses" },
+    { id: "cat_2", name: "Logement & Factures" },
     { id: "cat_3", name: "Loisirs & Sorties" },
-    { id: "cat_4", name: "Santé" },
-    { id: "cat_5", name: "Abonnements" }
+    { id: "cat_4", name: "Santé & Urgences" },
+    { id: "cat_5", name: "Abonnements & Services" }
   ];
 
-  // Chargement initial des données
   const loadBudgetData = async () => {
     setLoading(true);
     try {
-      // Simulation des données de la base de données (Appwrite / SQL)
-      // Dans votre code final, vous appellerez vos actions Appwrite en passant par les ID de collection définis dans vos variables d'environnement.
-      
-      setCashOnHand({
-        $id: "cash_1",
-        userId: userId,
-        toBeBudgeted: 450.00 // Exemple : 450€ non distribués (Glace Fondue)
-      });
+      const dbBudgets = await getUserBudgets(userId);
+      const dbCash = await getUserCashOnHand(userId);
 
-      setBudgets([
-        {
-          $id: "b_1",
-          userId: userId,
-          categoryId: "cat_1",
-          categoryName: "Alimentation",
-          allocatedAmount: 300,
-          activityAmount: 350, // Dépassement ! (Alerte rouge)
-          month_year: "2026-07-01"
-        },
-        {
-          $id: "b_2",
-          userId: userId,
-          categoryId: "cat_2",
-          categoryName: "Loyer & Factures",
-          allocatedAmount: 800,
-          activityAmount: 800,
-          month_year: "2026-07-01"
-        },
-        {
-          $id: "b_3",
-          userId: userId,
-          categoryId: "cat_3",
-          categoryName: "Loisirs & Sorties",
-          allocatedAmount: 200,
-          activityAmount: 50, // Excédent disponible pour le réalignement
-          month_year: "2026-07-01"
-        }
-      ]);
+      if (dbCash) {
+        setCashOnHand(dbCash as any);
+      } else {
+        setCashOnHand({ $id: "temp_cash", userId, toBeBudgeted: 500 });
+      }
+
+      if (dbBudgets && dbBudgets.length > 0) {
+        setBudgets(dbBudgets as any);
+      } else {
+        setBudgets([
+          { $id: "b_1", userId, categoryId: "cat_1", categoryName: "Alimentation & Courses", allocatedAmount: 200, activityAmount: 260, month_year: "2026-07" },
+          { $id: "b_2", userId, categoryId: "cat_2", categoryName: "Logement & Factures", allocatedAmount: 800, activityAmount: 800, month_year: "2026-07" },
+          { $id: "b_3", userId, categoryId: "cat_3", categoryName: "Loisirs & Sorties", allocatedAmount: 150, activityAmount: 30, month_year: "2026-07" }
+        ]);
+      }
     } catch (error) {
-      console.error("Erreur de chargement du budget:", error);
+      console.error("Erreur lors du chargement des données budgétaires :", error);
     } finally {
       setLoading(false);
     }
@@ -117,50 +96,52 @@ const RecentBudgets: React.FC<RecentBudgetsProps> = ({ userId }) => {
     if (userId) loadBudgetData();
   }, [userId]);
 
-  // Ajouter ou modifier une enveloppe budgétaire (Allouer de l'argent de l'Icebox)
-  const handleAllocate = (e: React.FormEvent) => {
+  const handleAllocate = async (e: React.FormEvent) => {
     e.preventDefault();
     const amountToAllocate = Number(newAllocated.amount);
 
     if (!newAllocated.categoryId || amountToAllocate <= 0 || !cashOnHand) return;
     if (amountToAllocate > cashOnHand.toBeBudgeted) {
-      alert("Vous n'avez pas assez de Glace Fondue disponible !");
+      alert("Solde insuffisant dans votre Glacière Financière !");
       return;
     }
 
     const selectedCat = availableCategories.find(c => c.id === newAllocated.categoryId);
     if (!selectedCat) return;
 
-    // Mise à jour de l'état local (à lier à Appwrite en production)
     const existingIndex = budgets.findIndex(b => b.categoryId === selectedCat.id);
-    
+    const updatedBudgets = [...budgets];
+
     if (existingIndex > -1) {
-      const updated = [...budgets];
-      updated[existingIndex].allocatedAmount += amountToAllocate;
-      setBudgets(updated);
+      updatedBudgets[existingIndex].allocatedAmount += amountToAllocate;
+      if (cashOnHand.$id !== "temp_cash") {
+        await updateBudgetAmounts(updatedBudgets[existingIndex].$id, updatedBudgets[existingIndex].allocatedAmount);
+      }
     } else {
-      setBudgets(prev => [...prev, {
+      const newBudgetObj = {
         $id: `b_${Date.now()}`,
         userId,
         categoryId: selectedCat.id,
         categoryName: selectedCat.name,
         allocatedAmount: amountToAllocate,
         activityAmount: 0,
-        month_year: "2026-07-01"
-      }]);
+        month_year: "2026-07"
+      };
+      updatedBudgets.push(newBudgetObj);
     }
 
-    // Soustraire du solde de l'Icebox
-    setCashOnHand({
-      ...cashOnHand,
-      toBeBudgeted: cashOnHand.toBeBudgeted - amountToAllocate
-    });
+    const newCashBalance = cashOnHand.toBeBudgeted - amountToAllocate;
+    setBudgets(updatedBudgets);
+    setCashOnHand({ ...cashOnHand, toBeBudgeted: newCashBalance });
+
+    if (cashOnHand.$id !== "temp_cash") {
+      await updateCashOnHand(cashOnHand.$id, newCashBalance);
+    }
 
     setNewAllocated({ categoryId: '', categoryName: '', amount: '' });
   };
 
-  // Exécuter le Blizzard Realignment (Transférer l'argent entre catégories)
-  const executeRealignment = () => {
+  const executeRealignment = async () => {
     const amount = Number(transferAmount);
     if (!targetBudget || !sourceBudgetId || amount <= 0) return;
 
@@ -170,37 +151,35 @@ const RecentBudgets: React.FC<RecentBudgetsProps> = ({ userId }) => {
     if (sourceIndex === -1 || targetIndex === -1) return;
 
     const source = budgets[sourceIndex];
-    // S'assurer que la source a assez d'argent disponible (Alloué - Dépensé)
     const sourceAvailable = source.allocatedAmount - source.activityAmount;
 
     if (amount > sourceAvailable) {
-      alert("Le montant du transfert dépasse les fonds disponibles dans la catégorie source !");
+      alert("Le montant à transférer dépasse l'excédent disponible dans cette catégorie !");
       return;
     }
 
     const updated = [...budgets];
-    // Transférer les fonds
     updated[sourceIndex].allocatedAmount -= amount;
     updated[targetIndex].allocatedAmount += amount;
 
     setBudgets(updated);
+
+    if (source.$id.startsWith('b_') && !source.$id.includes('temp')) {
+      await updateBudgetAmounts(updated[sourceIndex].$id, updated[sourceIndex].allocatedAmount);
+      await updateBudgetAmounts(updated[targetIndex].$id, updated[targetIndex].allocatedAmount);
+    }
+
     setIsModalOpen(false);
     setTargetBudget(null);
     setTransferAmount("");
     setSourceBudgetId("");
   };
 
-  // Ouvrir le modal Blizzard Realignment pour une catégorie spécifique
-  const openRealignmentModal = (budget: MonthlyBudget) => {
-    setTargetBudget(budget);
-    setIsModalOpen(true);
-  };
-
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-12">
-        <CloudSnow className="animate-spin text-cyan-500 w-8 h-8" />
-        <span className="ml-2 text-gray-500">Gel des données en cours...</span>
+      <div className="flex justify-center items-center py-12 gap-2 text-cyan-600">
+        <CloudSnow className="animate-spin w-6 h-6" />
+        <span className="text-sm font-medium">Mise à jour de la Glacière Financière...</span>
       </div>
     );
   }
@@ -208,49 +187,49 @@ const RecentBudgets: React.FC<RecentBudgetsProps> = ({ userId }) => {
   const iceboxValue = cashOnHand?.toBeBudgeted || 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6" dir="ltr">
       
-      {/* ❄️ ZONE 1 : L'Icebox Bucket (Glace Fondue) */}
-      <div className={`p-6 rounded-2xl border transition-all duration-500 shadow-lg ${
+      {/* 🧊 La Glacière Financière */}
+      <div className={`p-6 rounded-2xl border transition-all duration-300 shadow-md ${
         iceboxValue > 0 
-          ? "bg-gradient-to-r from-blue-50 to-cyan-100 border-cyan-200 text-cyan-900" 
-          : "bg-gradient-to-r from-green-50 to-emerald-100 border-emerald-200 text-emerald-900"
+          ? "bg-cyan-50 border-cyan-200 text-cyan-900 animate-pulse" 
+          : "bg-emerald-50 border-emerald-200 text-emerald-900"
       }`}>
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="space-y-1 text-center md:text-left">
-            <h2 className="text-lg font-bold flex items-center justify-center md:justify-start gap-2">
-              <span>❄️ La Glace Fondue (Icebox)</span>
+            <h2 className="text-xl font-bold flex items-center justify-center md:justify-start gap-2">
+              <Snowflake className="w-6 h-6 text-cyan-600" />
+              <span>Glacière Financière (Argent Liquide)</span>
             </h2>
-            <p className="text-xs opacity-80">
+            <p className="text-sm opacity-80">
               {iceboxValue > 0 
-                ? "Distribuez cet argent restant dans vos enveloppes pour atteindre l'équilibre YNAB !"
-                : "Excellent travail ! Chaque centime de votre glacier a trouvé sa place."}
+                ? "Vous avez des fonds non alloués ! Distribuez ce montant dans vos catégories pour affecter chaque euro disponible (Objectif Zéro)."
+                : "Excellent travail ! Votre budget est entièrement alloué et vos blocs financiers sont stables."}
             </p>
           </div>
-          <div className="flex items-center gap-4 bg-white/60 backdrop-blur-md px-6 py-3 rounded-xl border border-white/50 shadow-inner">
-            <span className="text-sm font-semibold">Disponible à allouer :</span>
-            <span className={`text-3xl font-black ${iceboxValue > 0 ? "text-cyan-600" : "text-emerald-600 animate-bounce"}`}>
+          <div className="bg-white/90 backdrop-blur px-6 py-3 rounded-xl border border-cyan-100 shadow-inner flex items-center gap-3">
+            <span className="text-sm font-medium text-gray-500">Reste à budgétiser :</span>
+            <span className={`text-2xl font-black ${iceboxValue > 0 ? "text-cyan-600" : "text-emerald-600"}`}>
               {formatterLeMontant(iceboxValue)}
             </span>
           </div>
         </div>
       </div>
 
-      {/* 📊 ZONE 2 : Tableau des enveloppes de budget */}
-      <div className="bg-white rounded-2xl border shadow-md overflow-hidden">
-        <div className="p-5 border-b bg-gray-50 flex items-center justify-between">
-          <h3 className="font-bold text-gray-800">Vos Enveloppes Mensuelles</h3>
-          <span className="text-xs text-gray-500">Mois de Juillet 2026</span>
+      {/* 📊 Tableau des Budgets */}
+      <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
+          <h3 className="font-bold text-gray-700 text-base">Vue d'ensemble des Catégories</h3>
         </div>
 
         <Table>
           <TableHeader>
-            <TableRow className="bg-gray-50/50">
-              <TableHead>Catégorie</TableHead>
+            <TableRow className="bg-gray-100/50">
+              <TableHead className="text-left">Catégorie</TableHead>
               <TableHead className="text-right">Budget Alloué</TableHead>
               <TableHead className="text-right">Dépenses Réelles</TableHead>
               <TableHead className="text-right">Solde Disponible</TableHead>
-              <TableHead className="text-center">Statut du Glacier</TableHead>
+              <TableHead className="text-center">Statut du Flux</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -259,34 +238,53 @@ const RecentBudgets: React.FC<RecentBudgetsProps> = ({ userId }) => {
               const isOverspent = available < 0;
 
               return (
-                <TableRow key={b.$id} className="hover:bg-gray-50/80 transition-colors">
-                  <td className="font-medium text-gray-800 p-4">{b.categoryName}</td>
-                  <td className="text-right p-4 font-semibold text-blue-600">
+                <TableRow 
+                  key={b.$id} 
+                  className={`transition-colors cursor-pointer ${
+                    isOverspent ? "bg-red-50/70 hover:bg-red-50 text-red-900 font-medium" : "hover:bg-gray-50/80"
+                  }`}
+                  onClick={() => {
+                    if (isOverspent) {
+                      setTargetBudget(b);
+                      setIsModalOpen(true);
+                    }
+                  }}
+                >
+                  <TableCell className="font-semibold p-4 flex items-center gap-2">
+                    {isOverspent && <CloudSnow className="w-4 h-4 text-red-500 animate-spin" />}
+                    {b.categoryName}
+                  </TableCell>
+                  <TableCell className="text-right font-mono p-4 text-blue-600">
                     {formatterLeMontant(b.allocatedAmount)}
-                  </td>
-                  <td className="text-right p-4 text-gray-600">
+                  </TableCell>
+                  <TableCell className="text-right font-mono p-4 text-gray-600">
                     {formatterLeMontant(b.activityAmount)}
-                  </td>
-                  <td className={`text-right p-4 font-bold ${isOverspent ? "text-red-500" : "text-green-600"}`}>
+                  </TableCell>
+                  <TableCell className={`text-right font-mono p-4 font-bold ${isOverspent ? "text-red-600" : "text-emerald-600"}`}>
                     {formatterLeMontant(available)}
-                  </td>
-                  <td className="p-4 text-center">
+                  </TableCell>
+                  <TableCell className="p-4 text-center">
                     {isOverspent ? (
                       <Button
-                        onClick={() => openRealignmentModal(b)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTargetBudget(b);
+                          setIsModalOpen(true);
+                        }}
                         size="sm"
-                        className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-full flex items-center gap-1 mx-auto"
+                        className="bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg text-xs"
                       >
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        Glace Brisée - Réaligner 🌬️
+                        <AlertTriangle className="w-3.5 h-3.5 mr-1 inline" />
+                        Alerte Blizzard - Ajuster 🌬️
                       </Button>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 font-medium">
-                        <CheckCircle className="w-3 h-3" />
-                        Solide
+                      <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-medium border border-emerald-200">
+                        <CheckCircle className="w-3 h-3 text-emerald-600" />
+                        Stable & Figé
                       </span>
+                      
                     )}
-                  </td>
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -294,77 +292,77 @@ const RecentBudgets: React.FC<RecentBudgetsProps> = ({ userId }) => {
         </Table>
       </div>
 
-      {/* ➕ ZONE 3 : Ajouter / Allouer des fonds à une enveloppe */}
+      {/* ➕ Allocation depuis l'Icebox */}
       {iceboxValue > 0 && (
-        <div className="bg-white p-6 rounded-2xl border shadow-md max-w-lg mx-auto">
-          <h4 className="font-bold text-gray-800 mb-4 text-center">Allouer de la Glace Fondue 🧊</h4>
+        <div className="bg-white p-6 rounded-2xl border shadow-sm max-w-md mx-auto">
+          <h4 className="font-bold text-gray-800 mb-3 text-center">Allouer des fonds depuis l'Icebox 🧊</h4>
           <form onSubmit={handleAllocate} className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-500">Choisir une enveloppe</label>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-500">Catégorie Cible</label>
               <select
                 value={newAllocated.categoryId}
                 onChange={(e) => setNewAllocated({ ...newAllocated, categoryId: e.target.value })}
                 className="w-full border rounded-lg p-2 text-sm bg-white"
                 required
               >
-                <option value="">Sélectionner une catégorie...</option>
+                <option value="">Sélectionnez une catégorie...</option>
                 {availableCategories.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-500">Montant à transférer depuis l'Icebox (€)</label>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-500">Montant à injecter (€)</label>
               <Input
                 type="number"
-                placeholder="Ex: 100"
+                placeholder="Entrez le montant"
                 value={newAllocated.amount}
                 onChange={(e) => setNewAllocated({ ...newAllocated, amount: e.target.value })}
                 required
               />
             </div>
-            <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-700 text-white">
-              Geler dans l'enveloppe
+            <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold">
+              Confirmer l'allocation
             </Button>
           </form>
         </div>
       )}
 
-      {/* 🌬️ MODAL : Blizzard Realignment (Tension / Réalignement Flexible) */}
+      {/* 🌬️ Modale de Réalignement */}
       {isModalOpen && targetBudget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl border p-6 max-w-md w-full shadow-2xl relative mx-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl relative mx-4 border border-red-100">
             <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-2">
-              <span>🌬️ Blizzard Realignment</span>
+              <span>🌬️ Réalignement Budgétaire Interactif (Blizzard)</span>
             </h3>
             <p className="text-xs text-gray-500 mb-4">
-              Votre enveloppe <strong className="text-red-500">{targetBudget.categoryName}</strong> est brisée. Sélectionnez une autre enveloppe solide pour la réparer.
+              La catégorie <strong className="text-red-600">{targetBudget.categoryName}</strong> a dépassé ses limites. Piochez dans les excédents d'une catégorie stable pour équilibrer le flux.
             </p>
 
             <div className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-500">Prendre de l'argent depuis :</label>
+                <label className="text-xs font-medium text-gray-600">Prendre les fonds depuis :</label>
                 <select
                   value={sourceBudgetId}
                   onChange={(e) => setSourceBudgetId(e.target.value)}
                   className="w-full border rounded-lg p-2 text-sm bg-white"
                 >
-                  <option value="">Choisir une enveloppe solide...</option>
+                  <option value="">Sélectionnez une catégorie avec excédent...</option>
                   {budgets
                     .filter(b => b.$id !== targetBudget.$id && (b.allocatedAmount - b.activityAmount) > 0)
                     .map((b) => (
                       <option key={b.$id} value={b.$id}>
-                        {b.categoryName} (Disponible: {formatterLeMontant(b.allocatedAmount - b.activityAmount)})
+                        {b.categoryName} (Excédent : {formatterLeMontant(b.allocatedAmount - b.activityAmount)})
                       </option>
                     ))}
                 </select>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-500">Montant à transférer (€) :</label>
+                <label className="text-xs font-medium text-gray-600">Montant à transférer :</label>
                 <Input
                   type="number"
-                  placeholder="Ex: 50"
+                  placeholder="Montant requis"
                   value={transferAmount}
                   onChange={(e) => setTransferAmount(e.target.value)}
                 />
@@ -372,17 +370,22 @@ const RecentBudgets: React.FC<RecentBudgetsProps> = ({ userId }) => {
 
               <div className="flex items-center gap-2 pt-2">
                 <Button 
-                  onClick={() => setIsModalOpen(false)} 
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setTargetBudget(null);
+                    setTransferAmount("");
+                    setSourceBudgetId("");
+                  }} 
                   variant="outline" 
-                  className="w-full"
+                  className="w-full text-gray-600"
                 >
                   Annuler
                 </Button>
                 <Button 
                   onClick={executeRealignment}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                 >
-                  Réaligner le Blizzard
+                  Confirmer le transfert
                 </Button>
               </div>
             </div>
