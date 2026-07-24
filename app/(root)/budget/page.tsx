@@ -4,6 +4,7 @@ import RecentBudgets from "@/components/RecentBudgets";
 import { getLoggedInUser } from "@/lib/actions/user.actions";
 
 
+
 const BudgetPage = async () => {
   const loggedIn = await getLoggedInUser();
   if (!loggedIn) return null;
